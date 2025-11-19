@@ -15,16 +15,16 @@
 #define ENABLE_PINS 0xFFFE // Needed to enable I/O
 #define SELA_MASK 0x0300   // taken from Piazza
 
-#define PWM_FREQUENCY 5000   // 200Hz (1MHz / 5000)
+#define PWM_PERIOD 5000      // 200Hz (1MHz / 5000)
 #define RAMP_INTERVAL 0x8000 // 1Hz ramping
 
 // right motor
-#define PWMA BIT4 // PWMA at P9.4
+#define PWMA BIT7 // PWMA at P1.7
 #define AIN2 BIT5 // AIN2 at P2.5
 #define AIN1 BIT7 // AIN1 at P4.7
 
 // left motor
-#define PWMB BIT0 // PWMB at P9.0
+#define PWMB BIT6 // PWMB at P1.6
 #define BIN2 BIT1 // BIN2 at P4.1
 #define BIN1 BIT6 // BIN1 at P9.6
 
@@ -58,7 +58,7 @@
   do {                                                                         \
     P4OUT &= ~BIN2;                                                            \
     P9OUT &= ~BIN1;                                                            \
-    P9OUT &= ~PWMB;                                                            \
+    P1OUT &= ~PWMB;                                                            \
   } while (0)
 
 #define RIGHT_MOTOR_FORWARD                                                    \
@@ -77,7 +77,7 @@
   do {                                                                         \
     P2OUT &= ~AIN2;                                                            \
     P4OUT &= ~AIN1;                                                            \
-    P9OUT &= ~PWMA;                                                            \
+    P1OUT &= ~PWMA;                                                            \
   } while (0)
 
 #define START_TIMERS()                                                         \
@@ -145,13 +145,11 @@ main() {
   SwitchToLFXT();
 
   motorInit();
-  ultrasonicInit();
+  // ultrasonicInit();
 
   __enable_interrupt(); // Activate interrupts
 
-  motorSetDirection(FORWARD);
-  startLeftMotor(50);
-  startRightMotor(50);
+  // motorSetDirection(FORWARD);
 
   while (1) {
     // if (frontDistance > 0 && frontDistance < 10) {
@@ -165,23 +163,23 @@ main() {
     // }
     // __delay_cycles(10000);
 
-    startLeftMotor(10);
-    startRightMotor(10);
-    __delay_cycles(500000);
+    // startLeftMotor(10);
+    // startRightMotor(50);
+    // __delay_cycles(500000);
 
-    startLeftMotor(100);
-    startRightMotor(100);
-    __delay_cycles(500000);
+    // startLeftMotor(100);
+    // startRightMotor(100);
+    // __delay_cycles(500000);
 
-    motorSetDirection(LEFT);
-    __delay_cycles(500000);
+    // motorSetDirection(LEFT);
+    // __delay_cycles(500000);
 
-    motorSetDirection(RIGHT);
-    __delay_cycles(500000);
+    // motorSetDirection(RIGHT);
+    // __delay_cycles(500000);
 
-    stopLeftMotor();
-    stopRightMotor();
-    __delay_cycles(500000);
+    // stopLeftMotor();
+    // stopRightMotor();
+    // __delay_cycles(500000);
   }
 }
 
@@ -228,31 +226,34 @@ void ultrasonicInit(void) {
 
 void motorInit(void) {
   // right motor GPIO
-  P9DIR |= PWMA;  // PWM output
-  P9SEL0 |= PWMA; // FIXME: timer <-> GPIO
-  P9OUT &= ~PWMA;
+  P1DIR |= PWMA;  // PWM output
+  P1OUT &= ~PWMA; // start low
+
+  P1SEL0 |= PWMA; // PWM mapping (TA0.2 <-> P1.7)
+  P1SEL1 |= PWMA;
+
   P2DIR |= AIN2; // H-bridge
   P4DIR |= AIN1;
   RIGHT_MOTOR_STOP;
 
+  // Timer A0:
+  TA0CCR0 = PWM_PERIOD; // PWM at 200Hz
+  TA0CCR1 = 2500;       // duty cycle
+  TA0CCR2 = 1000;       // duty cycle
+  TA0CCTL2 = OUTMOD_7;  // reset/set PWM mode (TA0.2)
+  TA0CCTL1 = OUTMOD_7;  // reset/set PWM mode (TA0.1)
+  TA0CTL = TASSEL__SMCLK | MC__UP | TACLR;
+
   // left motor GPIO
-  P9DIR |= PWMB; // PWM output
-  P9SEL0 |= PWMB;
-  P9OUT &= ~PWMB;
+  P1DIR |= PWMB; // PWM output
+  P1OUT &= ~PWMB;
+
+  P1SEL0 |= PWMB;
+  P1SEL1 |= PWMB; // (P9SEL1.0 = 0, P9SEL0.0 = 1 selects TA0.1)
+
   P4DIR |= BIN2; // H-bridge
   P9DIR |= BIN1;
   LEFT_MOTOR_STOP;
-
-  // Timer A0: PWM at 200Hz
-  TA0CCR0 = PWM_FREQUENCY;
-  TA0CTL = TASSEL__SMCLK | MC__UP | TACLR;
-  TA0CCTL1 = OUTMOD_7; // pwm mode reset/set
-  TA0CCTL2 = OUTMOD_7;
-
-  // // Timer A1: Duty cycle ramping at 1Hz (every 1sec)
-  // TA1CCR0 = RAMP_INTERVAL;
-  // TA1CTL = TASSEL__ACLK | MC__STOP | TACLR;
-  // TA1CCTL0 = CCIE;
 }
 
 // controls the direction of BOTH motors combined
@@ -289,7 +290,7 @@ void startLeftMotor(int speed) {
     speed = 100;
 
   LEFT_MOTOR_FORWARD;
-  P9OUT |= PWMB;
+  P1OUT |= PWMB;
 
   TA0CCR2 = (TA0CCR0 * speed) / 100; // Set PWM duty cycle
 
@@ -302,12 +303,10 @@ void setLeftMotorSpeed(int speed) {
   if (!leftMotor.isSpinning) {
     P2OUT &= ~BIN2;
     P4OUT ^= BIN1;
-    P9OUT |= PWMB;
+    P1OUT |= PWMB;
     leftMotor.isSpinning = true;
   }
 }
-
-void setLeftMotorSpeed(int speed) {}
 
 void stopLeftMotor(void) {
   LEFT_MOTOR_STOP;
@@ -324,9 +323,9 @@ void startRightMotor(int speed) {
     speed = 100;
 
   RIGHT_MOTOR_FORWARD;
-  P9OUT |= PWMA;
+  P1OUT |= PWMA;
 
-  TA0CCR1 = (TA0CCR0 * speed) / 100; // Set PWM duty cycle
+  TA0CCR2 = (TA0CCR0 * speed) / 100; // Set PWM duty cycle
 
   rightMotor.speed = speed;
   rightMotor.isSpinning = true;

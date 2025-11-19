@@ -4,31 +4,23 @@
 #include <driverlib.h> // Required for the LCD
 #include <msp430.h>
 
-// TODO:
-// tim0 A0: left motor
-// tim0 a1: right motor
-
-// tim1 a0: ultrasonic * 3
-
 /* ========================= Macros ========================= */
 
 #define ENABLE_PINS 0xFFFE // Needed to enable I/O
 #define SELA_MASK 0x0300   // taken from Piazza
 
-#define PWM_FREQUENCY 5000   // 200Hz (1MHz / 5000)
+#define PWM_PERIOD 5000      // 200Hz (1MHz / 5000)
 #define RAMP_INTERVAL 0x8000 // 1Hz ramping
 
 // right motor
-#define PWMA BIT4 // PWMA at P9.4
+#define PWMA BIT7 // PWMA at P1.7
 #define AIN2 BIT5 // AIN2 at P2.5
 #define AIN1 BIT7 // AIN1 at P4.7
 
 // left motor
-#define PWMB BIT0 // PWMB at P9.0
+#define PWMB BIT6 // PWMB at P1.6
 #define BIN2 BIT1 // BIN2 at P4.1
 #define BIN1 BIT6 // BIN1 at P9.6
-
-// TODO: check ADC ports for echo out
 
 // Front ultrasonic sensor
 #define FRONT_TRIG_PIN BIT2 // P9.2
@@ -44,11 +36,11 @@
 
 #define LEFT_MOTOR_FORWARD                                                     \
   do {                                                                         \
-    P9OUT &= ~BIN1;                                                             \
-    P4OUT |= BIN2;                                                            \
+    P9OUT &= ~BIN1;                                                            \
+    P4OUT |= BIN2;                                                             \
   } while (0)
 
-#define LEFT_MOTOR_REVERSE\
+#define LEFT_MOTOR_REVERSE                                                     \
   do {                                                                         \
     P9OUT |= BIN1;                                                             \
     P4OUT &= ~BIN2;                                                            \
@@ -58,8 +50,10 @@
   do {                                                                         \
     P4OUT &= ~BIN2;                                                            \
     P9OUT &= ~BIN1;                                                            \
-    P9OUT &= ~PWMB;                                                            \
+    P1OUT &= ~PWMB;                                                            \
   } while (0)
+
+#define LEFT_MOTOR_START P1OUT |= PWMB;
 
 #define RIGHT_MOTOR_FORWARD                                                    \
   do {                                                                         \
@@ -67,32 +61,20 @@
     P2OUT &= ~AIN2;                                                            \
   } while (0)
 
-#define RIGHT_MOTOR_REVERSE\
+#define RIGHT_MOTOR_REVERSE                                                    \
   do {                                                                         \
-    P4OUT &= ~AIN1;                                                             \
-    P2OUT |= AIN2;                                                            \
+    P4OUT &= ~AIN1;                                                            \
+    P2OUT |= AIN2;                                                             \
   } while (0)
 
 #define RIGHT_MOTOR_STOP                                                       \
   do {                                                                         \
     P2OUT &= ~AIN2;                                                            \
     P4OUT &= ~AIN1;                                                            \
-    P9OUT &= ~PWMA;                                                            \
+    P1OUT &= ~PWMA;                                                            \
   } while (0)
 
-#define START_TIMERS()                                                         \
-  do {                                                                         \
-    TA0CTL = TASSEL__SMCLK | MC__UP | TACLR;                                   \
-    TA1CTL = TASSEL__ACLK | MC__UP | TACLR;                                    \
-  } while (0)
-
-#define STOP_TIMERS()                                                          \
-  do {                                                                         \
-    TA0CCTL0 &= ~CCIE;                                                         \
-    TA1CCTL0 &= ~CCIE;                                                         \
-    TA0CTL = TASSEL__SMCLK | MC__STOP | TACLR;                                 \
-    TA1CTL = TASSEL__ACLK | MC__STOP | TACLR;                                  \
-  } while (0)
+#define RIGHT_MOTOR_START P1OUT |= PWMA;
 
 /* ========================= Global Vars ========================= */
 
@@ -105,14 +87,6 @@ volatile int waitingFall = 0;
 
 typedef enum { STOP = 0, FORWARD = 1, LEFT, RIGHT } Direction;
 
-typedef struct motor {
-  int speed;
-  bool isSpinning;
-} motor_t;
-
-motor_t leftMotor = {0, false, STOP};
-motor_t rightMotor = {0, false, STOP};
-
 /* ========================= Helper Functions ========================= */
 
 void SwitchToLFXT(void);
@@ -122,6 +96,8 @@ void motorInit(void);
 void motorSetDirection(Direction direction);
 void startLeftMotor(int speed);
 void startRightMotor(int speed);
+void setLeftMotorSpeed(int speed);
+void setRightMotorSpeed(int speed);
 void stopLeftMotor(void);
 void stopRightMotor(void);
 
@@ -151,7 +127,7 @@ main() {
   SwitchToLFXT();
 
   motorInit();
-  ultrasonicInit();
+  // ultrasonicInit();
 
   __enable_interrupt(); // Activate interrupts
 
@@ -216,29 +192,34 @@ void ultrasonicInit(void) {
 
 void motorInit(void) {
   // right motor GPIO
-  P9DIR |= PWMA; // PWM output
-  P9OUT &= ~PWMA;
+  P1DIR |= PWMA;  // PWM output
+  P1OUT &= ~PWMA; // start low
+
+  P1SEL0 |= PWMA; // PWM mapping (TA0.2 <-> P1.7)
+  P1SEL1 |= PWMA;
+
   P2DIR |= AIN2; // H-bridge
   P4DIR |= AIN1;
   RIGHT_MOTOR_STOP;
 
   // left motor GPIO
-  P9DIR |= PWMB; // PWM output
-  P9OUT &= ~PWMB;
+  P1DIR |= PWMB; // PWM output
+  P1OUT &= ~PWMB;
+
+  P1SEL0 |= PWMB; // PWM mapping (TA0.1 <-> P1.6)
+  P1SEL1 |= PWMB;
+
   P4DIR |= BIN2; // H-bridge
   P9DIR |= BIN1;
   LEFT_MOTOR_STOP;
 
-  // Timer A0: PWM at 200Hz
-  TA0CCR0 = PWM_FREQUENCY;
+  // Timer A0:
+  TA0CCR0 = PWM_PERIOD; // PWM at 200Hz
+  TA0CCR1 = 0;          // duty cycle (start w/ 0 speed)
+  TA0CCR2 = 0;          // duty cycle (start w/ 0 speed)
+  TA0CCTL2 = OUTMOD_7;  // reset/set PWM mode (TA0.2)
+  TA0CCTL1 = OUTMOD_7;  // reset/set PWM mode (TA0.1)
   TA0CTL = TASSEL__SMCLK | MC__UP | TACLR;
-  TA0CCTL1 = OUTMOD_7; // pwm mode reset/set
-  TA0CCTL2 = OUTMOD_7;
-
-  // // Timer A1: Duty cycle ramping at 1Hz (every 1sec)
-  // TA1CCR0 = RAMP_INTERVAL;
-  // TA1CTL = TASSEL__ACLK | MC__STOP | TACLR;
-  // TA1CCTL0 = CCIE;
 }
 
 // controls the direction of BOTH motors combined
@@ -269,58 +250,39 @@ void motorSetDirection(Direction direction) {
 
 // controls the speed of INDIVIDUAL motor
 void startLeftMotor(int speed) {
-  if (speed < 0)
-    speed = 0;
-  if (speed > 100)
-    speed = 100;
+  speed = (speed > 100) ? 100 : speed;
+  speed = (speed < 0) ? 0 : speed;
 
   LEFT_MOTOR_FORWARD;
-  P9OUT |= PWMB;
+  LEFT_MOTOR_START;
 
-  TA0CCR2 = (TA0CCR0 * speed) / 100; // Set PWM duty cycle
-
-  leftMotor.speed = speed;
-  leftMotor.isSpinning = true;
+  TA0CCR1 = (TA0CCR0 / 100 * speed); // Set PWM duty cycle
 }
 
 // speed at percentage (0-100%)
-void setLeftMotorSpeed(int speed) {
-  if (!leftMotor.isSpinning) {
-    P2OUT &= ~BIN2;
-    P4OUT ^= BIN1;
-    P9OUT |= PWMB;
-    leftMotor.isSpinning = true;
-  }
-}
+void setLeftMotorSpeed(int speed) { TA0CCR1 = (TA0CCR0 / 100 * speed); }
 
 void stopLeftMotor(void) {
   LEFT_MOTOR_STOP;
-  TA0CCR2 = 0;
-  leftMotor.speed = 0;
-  leftMotor.isSpinning = false;
+  TA0CCR1 = 0;
 }
 
 // speed at percentage (0-100%)
 void startRightMotor(int speed) {
-  if (speed < 0)
-    speed = 0;
-  if (speed > 100)
-    speed = 100;
+  speed = (speed > 100) ? 100 : speed;
+  speed = (speed < 0) ? 0 : speed;
 
   RIGHT_MOTOR_FORWARD;
-  P9OUT |= PWMA;
+  RIGHT_MOTOR_START
 
-  TA0CCR1 = (TA0CCR0 * speed) / 100; // Set PWM duty cycle
-
-  rightMotor.speed = speed;
-  rightMotor.isSpinning = true;
+  TA0CCR2 = (TA0CCR0 / 100 * speed); // Set PWM duty cycle
 }
+
+void setRightMotorSpeed(int speed) { TA0CCR2 = (TA0CCR0 / 100 * speed); }
 
 void stopRightMotor(void) {
   RIGHT_MOTOR_STOP;
-  TA0CCR1 = 0;
-  rightMotor.speed = 0;
-  rightMotor.isSpinning = false;
+  TA0CCR2 = 0;
 }
 
 //************************************************************************
@@ -392,3 +354,4 @@ void SwitchToLFXT(void) {
 
   CSCTL0_H = 0; // Lock Clock Select (CS) registers
 }
+

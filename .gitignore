@@ -1,0 +1,9 @@
+Debug/
+.clangd/
+*.idx
+*.d
+*.obj
+*.o
+*.mk
+*.ccxml
+

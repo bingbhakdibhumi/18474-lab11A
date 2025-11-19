@@ -1,10 +1,10 @@
 ******************************************************************************
                   MSP430 Linker PC v21.6.1                     
 ******************************************************************************
->> Linked Wed Nov 19 10:08:39 2025
+>> Linked Wed Nov 19 16:40:09 2025
 
 OUTPUT FILE NAME:   <LAB11A.out>
-ENTRY POINT SYMBOL: "_c_int00_noargs_mpu"  address: 00004448
+ENTRY POINT SYMBOL: "_c_int00_noargs_mpu"  address: 0000446e
 
 
 MEMORY CONFIGURATION
@@ -18,8 +18,8 @@ MEMORY CONFIGURATION
   INFOC                 00001880   00000080  00000000  00000080  RWIX
   INFOB                 00001900   00000080  00000000  00000080  RWIX
   INFOA                 00001980   00000080  00000000  00000080  RWIX
-  RAM                   00001c00   00000800  000000b2  0000074e  RWIX
-  FRAM                  00004400   0000bb80  0000009e  0000bae2  RWIX
+  RAM                   00001c00   00000800  000000aa  00000756  RWIX
+  FRAM                  00004400   0000bb80  000000b2  0000bace  RWIX
   JTAGSIGNATURE         0000ff80   00000004  00000004  00000000  RWIX  ffff 
   BSLSIGNATURE          0000ff84   00000004  00000004  00000000  RWIX  ffff 
   IPESIGNATURE          0000ff88   00000008  00000008  00000000  RWIX  ffff 
@@ -79,7 +79,7 @@ MEMORY CONFIGURATION
   INT53                 0000fffa   00000002  00000002  00000000  RWIX
   INT54                 0000fffc   00000002  00000002  00000000  RWIX
   RESET                 0000fffe   00000002  00000002  00000000  RWIX
-  FRAM2                 00010000   00013ff8  0000045c  00013b9c  RWIX
+  FRAM2                 00010000   00013ff8  0000031e  00013cda  RWIX
 
 
 SECTION ALLOCATION MAP
@@ -108,10 +108,10 @@ section   page    origin      length       input sections
 .ipe_vars 
 *          0    00004400    00000000     UNINITIALIZED
 
-.cinit     0    00004484    0000001a     
-                  00004484    0000000a     (.cinit..data.load) [load image, compression = lzss]
-                  0000448e    00000008     (__TI_handler_table)
-                  00004496    00000008     (__TI_cinit_table)
+.cinit     0    00004496    0000001c     
+                  00004496    0000000c     (.cinit..data.load) [load image, compression = lzss]
+                  000044a2    00000008     (__TI_handler_table)
+                  000044aa    00000008     (__TI_cinit_table)
 
 .binit     0    00004400    00000000     
 
@@ -119,16 +119,14 @@ section   page    origin      length       input sections
 *          0    00004400    00000000     UNINITIALIZED
 
 .text:_isr 
-*          0    00004400    00000084     
-                  00004400    00000048     barameeb_lab11a.obj (.text:_isr:Port_4)
-                  00004448    00000020     rts430x_lc_rd_eabi.lib : boot.c.obj (.text:_isr:_c_int00_noargs_mpu)
-                  00004468    00000014     barameeb_lab11a.obj (.text:_isr:Timer1_ISR)
-                  0000447c    00000008     rts430x_lc_rd_eabi.lib : isr_trap.asm.obj (.text:_isr:__TI_ISR_TRAP)
+*          0    00004400    00000096     
+                  00004400    00000044     barameeb_lab11a.obj (.text:_isr:Port_4)
+                  00004444    0000002a     barameeb_lab11a.obj (.text:_isr:Timer1_ISR)
+                  0000446e    00000020     rts430x_lc_rd_eabi.lib : boot.c.obj (.text:_isr:_c_int00_noargs_mpu)
+                  0000448e    00000008                            : isr_trap.asm.obj (.text:_isr:__TI_ISR_TRAP)
 
-.data      0    00001c00    00000012     UNINITIALIZED
+.data      0    00001c00    0000000a     UNINITIALIZED
                   00001c00    0000000a     barameeb_lab11a.obj (.data)
-                  00001c0a    00000004     barameeb_lab11a.obj (.data:leftMotor)
-                  00001c0e    00000004     barameeb_lab11a.obj (.data:rightMotor)
 
 .stack     0    00002360    000000a0     UNINITIALIZED
                   00002360    00000004     rts430x_lc_rd_eabi.lib : boot.c.obj (.stack)
@@ -240,36 +238,34 @@ SYSNMI     0    0000fffc    00000002
 .reset     0    0000fffe    00000002     
                   0000fffe    00000002     rts430x_lc_rd_eabi.lib : boot.c.obj (.reset)
 
-.text      0    00010000    0000045c     
-                  00010000    000000e0     barameeb_lab11a.obj (.text:main)
-                  000100e0    0000007a     barameeb_lab11a.obj (.text:motorSetDirection)
-                  0001015a    00000076     rts430x_lc_rd_eabi.lib : copy_decompress_lzss.c.obj (.text:decompress:lzss:__TI_decompress_lzss)
-                  000101d0    00000064     barameeb_lab11a.obj (.text:motorInit)
-                  00010234    00000054     rts430x_lc_rd_eabi.lib : autoinit.c.obj (.text:__TI_auto_init_nobinit_nopinit_hold_wdt:__TI_auto_init_nobinit_nopinit_hold_wdt)
-                  00010288    00000044     barameeb_lab11a.obj (.text:startRightMotor)
-                  000102cc    00000040     barameeb_lab11a.obj (.text:startLeftMotor)
-                  0001030c    00000036     barameeb_lab11a.obj (.text:ultrasonicInit)
-                  00010342    00000030     barameeb_lab11a.obj (.text:SwitchToLFXT)
-                  00010372    0000002c     MSPMPU_INIT_LIB_CCS_msp430_large_code_restricted_data.lib : mpu_init.o (.text:__mpu_init)
-                  0001039e    00000022     barameeb_lab11a.obj (.text:SMCLK_SetTo1MHz)
-                  000103c0    00000020     barameeb_lab11a.obj (.text:stopRightMotor)
-                  000103e0    0000001c     barameeb_lab11a.obj (.text:stopLeftMotor)
-                  000103fc    00000018     rts430x_lc_rd_eabi.lib : mult16_f5hw.asm.obj (.text)
-                  00010414    00000016                            : div16u.asm.obj (.text)
-                  0001042a    00000014                            : memcpy.c.obj (.text:memcpy)
-                  0001043e    00000012                            : copy_decompress_none.c.obj (.text:decompress:none:__TI_decompress_none)
-                  00010450    00000006                            : exit.c.obj (.text:abort)
-                  00010456    00000004                            : pre_init.c.obj (.text:_system_pre_init)
-                  0001045a    00000002                            : startup.c.obj (.text:_system_post_cinit)
+.text      0    00010000    0000031e     
+                  00010000    0000008a     barameeb_lab11a.obj (.text:motorInit)
+                  0001008a    00000076     rts430x_lc_rd_eabi.lib : copy_decompress_lzss.c.obj (.text:decompress:lzss:__TI_decompress_lzss)
+                  00010100    00000054                            : autoinit.c.obj (.text:__TI_auto_init_nobinit_nopinit_hold_wdt:__TI_auto_init_nobinit_nopinit_hold_wdt)
+                  00010154    00000048     barameeb_lab11a.obj (.text:main)
+                  0001019c    0000003c     barameeb_lab11a.obj (.text:startRightMotor)
+                  000101d8    0000003a     barameeb_lab11a.obj (.text:startLeftMotor)
+                  00010212    00000030     barameeb_lab11a.obj (.text:SwitchToLFXT)
+                  00010242    0000002c     MSPMPU_INIT_LIB_CCS_msp430_large_code_restricted_data.lib : mpu_init.o (.text:__mpu_init)
+                  0001026e    00000022     barameeb_lab11a.obj (.text:SMCLK_SetTo1MHz)
+                  00010290    00000018     rts430x_lc_rd_eabi.lib : mult16_f5hw.asm.obj (.text)
+                  000102a8    00000018     barameeb_lab11a.obj (.text:stopRightMotor)
+                  000102c0    00000016     rts430x_lc_rd_eabi.lib : div16u.asm.obj (.text)
+                  000102d6    00000016     barameeb_lab11a.obj (.text:stopLeftMotor)
+                  000102ec    00000014     rts430x_lc_rd_eabi.lib : memcpy.c.obj (.text:memcpy)
+                  00010300    00000012                            : copy_decompress_none.c.obj (.text:decompress:none:__TI_decompress_none)
+                  00010312    00000006                            : exit.c.obj (.text:abort)
+                  00010318    00000004                            : pre_init.c.obj (.text:_system_pre_init)
+                  0001031c    00000002                            : startup.c.obj (.text:_system_post_cinit)
 
 MODULE SUMMARY
 
        Module                       code   ro data   rw data
        ------                       ----   -------   -------
     .\
-       barameeb_lab11a.obj          866    4         18     
+       barameeb_lab11a.obj          566    4         10     
     +--+----------------------------+------+---------+---------+
-       Total:                       866    4         18     
+       Total:                       566    4         10     
                                                             
     C:\ti\ccs2020\ccs\ccs_base\msp430\lib\FR59xx\MSPMPU_INIT_LIB_CCS_msp430_large_code_restricted_data.lib
        mpu_init.o                   44     0         0      
@@ -318,20 +314,20 @@ MODULE SUMMARY
        Total:                       338    54        0      
                                                             
        Stack:                       0      0         160    
-       Linker Generated:            0      26        0      
+       Linker Generated:            0      28        0      
     +--+----------------------------+------+---------+---------+
-       Grand Total:                 1248   84        178    
+       Grand Total:                 948    86        170    
 
 
 LINKER GENERATED COPY TABLES
 
-__TI_cinit_table @ 00004496 records: 1, size/record: 8, table size: 8
-	.data: load addr=00004484, load size=0000000a bytes, run addr=00001c00, run size=00000012 bytes, compression=lzss
+__TI_cinit_table @ 000044aa records: 1, size/record: 8, table size: 8
+	.data: load addr=00004496, load size=0000000c bytes, run addr=00001c00, run size=0000000a bytes, compression=lzss
 
 
 LINKER GENERATED HANDLER TABLE
 
-__TI_handler_table @ 0000448e records: 2, size/record: 4, table size: 8
+__TI_handler_table @ 000044a2 records: 2, size/record: 4, table size: 8
 	index: 0, handler: __TI_decompress_lzss
 	index: 1, handler: __TI_decompress_none
 
@@ -597,7 +593,7 @@ address   name
 000009ce  AESAXIN_L                              
 000004be  BCD2BIN                                
 000004bc  BIN2BCD                                
-00010450  C$$EXIT                                
+00010312  C$$EXIT                                
 0000043e  CAPTIO0CTL                             
 0000043f  CAPTIO0CTL_H                           
 0000043e  CAPTIO0CTL_L                           
@@ -1467,7 +1463,7 @@ address   name
 00000104  SFRRPCR                                
 00000105  SFRRPCR_H                              
 00000104  SFRRPCR_L                              
-0001039e  SMCLK_SetTo1MHz                        
+0001026e  SMCLK_SetTo1MHz                        
 000004ce  SUMEXT                                 
 000004cf  SUMEXT_H                               
 000004ce  SUMEXT_L                               
@@ -1498,7 +1494,7 @@ address   name
 0000019a  SYSUNIV                                
 0000019b  SYSUNIV_H                              
 0000019a  SYSUNIV_L                              
-00010342  SwitchToLFXT                           
+00010212  SwitchToLFXT                           
 00000352  TA0CCR0                                
 00000354  TA0CCR1                                
 00000356  TA0CCR2                                
@@ -1559,7 +1555,7 @@ address   name
 000003e0  TB0EX0                                 
 000003ee  TB0IV                                  
 000003d0  TB0R                                   
-00004468  Timer1_ISR                             
+00004444  Timer1_ISR                             
 000005d0  UCA0ABCTL                              
 000005c6  UCA0BRW                                
 000005c7  UCA0BRW_H                              
@@ -1723,15 +1719,15 @@ address   name
 0000015c  WDTCTL_L                               
 00002400  __STACK_END                            
 000000a0  __STACK_SIZE                           
-00004496  __TI_CINIT_Base                        
-0000449e  __TI_CINIT_Limit                       
-0000449e  __TI_CINIT_Warm                        
-0000448e  __TI_Handler_Table_Base                
-00004496  __TI_Handler_Table_Limit               
-0000447c  __TI_ISR_TRAP                          
-00010234  __TI_auto_init_nobinit_nopinit_hold_wdt
-0001015a  __TI_decompress_lzss                   
-0001043e  __TI_decompress_none                   
+000044aa  __TI_CINIT_Base                        
+000044b2  __TI_CINIT_Limit                       
+000044b2  __TI_CINIT_Warm                        
+000044a2  __TI_Handler_Table_Base                
+000044aa  __TI_Handler_Table_Limit               
+0000448e  __TI_ISR_TRAP                          
+00010100  __TI_auto_init_nobinit_nopinit_hold_wdt
+0001008a  __TI_decompress_lzss                   
+00010300  __TI_decompress_none                   
 0000ffc6  __TI_int27                             
 0000ffc8  __TI_int28                             
 0000ffca  __TI_int29                             
@@ -1765,39 +1761,35 @@ ffffffff  __TI_prof_data_size
 ffffffff  __TI_prof_data_start                   
 ffffffff  __c_args__                             
 00000001  __mpu_enable                           
-00010372  __mpu_init                             
-00010414  __mspabi_divu                          
-000103fc  __mspabi_mpyi_f5hw                     
-00010414  __mspabi_remu                          
-00004448  _c_int00_noargs_mpu                    
+00010242  __mpu_init                             
+000102c0  __mspabi_divu                          
+00010290  __mspabi_mpyi_f5hw                     
+000102c0  __mspabi_remu                          
+0000446e  _c_int00_noargs_mpu                    
 0000fffe  _reset_vector                          
 00002360  _stack                                 
-0001045a  _system_post_cinit                     
-00010456  _system_pre_init                       
-00010450  abort                                  
+0001031c  _system_post_cinit                     
+00010318  _system_pre_init                       
+00010312  abort                                  
 00004400  fram_ipe_end                           
 00004400  fram_ipe_start                         
 00004400  fram_rw_start                          
 00004400  fram_rx_start                          
 00001c00  frontDistance                          
 00001c02  leftDistance                           
-00001c0a  leftMotor                              
-00010000  main                                   
-0001042a  memcpy                                 
-000101d0  motorInit                              
-000100e0  motorSetDirection                      
+00010154  main                                   
+000102ec  memcpy                                 
+00010000  motorInit                              
 0000a501  mpu_ctl0_value                         
 00001513  mpu_sam_value                          
 00000440  mpu_segment_border1                    
 00000440  mpu_segment_border2                    
 00001c04  rightDistance                          
-00001c0e  rightMotor                             
-000102cc  startLeftMotor                         
-00010288  startRightMotor                        
-000103e0  stopLeftMotor                          
-000103c0  stopRightMotor                         
+000101d8  startLeftMotor                         
+0001019c  startRightMotor                        
+000102d6  stopLeftMotor                          
+000102a8  stopRightMotor                         
 00001c06  timerCount                             
-0001030c  ultrasonicInit                         
 00001c08  waitingFall                            
 
 
@@ -3191,8 +3183,6 @@ address   name
 00001c04  rightDistance                          
 00001c06  timerCount                             
 00001c08  waitingFall                            
-00001c0a  leftMotor                              
-00001c0e  rightMotor                             
 00002360  _stack                                 
 00002400  __STACK_END                            
 00004400  Port_4                                 
@@ -3200,14 +3190,14 @@ address   name
 00004400  fram_ipe_start                         
 00004400  fram_rw_start                          
 00004400  fram_rx_start                          
-00004448  _c_int00_noargs_mpu                    
-00004468  Timer1_ISR                             
-0000447c  __TI_ISR_TRAP                          
-0000448e  __TI_Handler_Table_Base                
-00004496  __TI_CINIT_Base                        
-00004496  __TI_Handler_Table_Limit               
-0000449e  __TI_CINIT_Limit                       
-0000449e  __TI_CINIT_Warm                        
+00004444  Timer1_ISR                             
+0000446e  _c_int00_noargs_mpu                    
+0000448e  __TI_ISR_TRAP                          
+000044a2  __TI_Handler_Table_Base                
+000044aa  __TI_CINIT_Base                        
+000044aa  __TI_Handler_Table_Limit               
+000044b2  __TI_CINIT_Limit                       
+000044b2  __TI_CINIT_Warm                        
 0000a501  mpu_ctl0_value                         
 0000ffc6  __TI_int27                             
 0000ffc8  __TI_int28                             
@@ -3238,31 +3228,29 @@ address   name
 0000fffa  __TI_int53                             
 0000fffc  __TI_int54                             
 0000fffe  _reset_vector                          
-00010000  main                                   
-000100e0  motorSetDirection                      
-0001015a  __TI_decompress_lzss                   
-000101d0  motorInit                              
-00010234  __TI_auto_init_nobinit_nopinit_hold_wdt
-00010288  startRightMotor                        
-000102cc  startLeftMotor                         
-0001030c  ultrasonicInit                         
-00010342  SwitchToLFXT                           
-00010372  __mpu_init                             
-0001039e  SMCLK_SetTo1MHz                        
-000103c0  stopRightMotor                         
-000103e0  stopLeftMotor                          
-000103fc  __mspabi_mpyi_f5hw                     
-00010414  __mspabi_divu                          
-00010414  __mspabi_remu                          
-0001042a  memcpy                                 
-0001043e  __TI_decompress_none                   
-00010450  C$$EXIT                                
-00010450  abort                                  
-00010456  _system_pre_init                       
-0001045a  _system_post_cinit                     
+00010000  motorInit                              
+0001008a  __TI_decompress_lzss                   
+00010100  __TI_auto_init_nobinit_nopinit_hold_wdt
+00010154  main                                   
+0001019c  startRightMotor                        
+000101d8  startLeftMotor                         
+00010212  SwitchToLFXT                           
+00010242  __mpu_init                             
+0001026e  SMCLK_SetTo1MHz                        
+00010290  __mspabi_mpyi_f5hw                     
+000102a8  stopRightMotor                         
+000102c0  __mspabi_divu                          
+000102c0  __mspabi_remu                          
+000102d6  stopLeftMotor                          
+000102ec  memcpy                                 
+00010300  __TI_decompress_none                   
+00010312  C$$EXIT                                
+00010312  abort                                  
+00010318  _system_pre_init                       
+0001031c  _system_post_cinit                     
 ffffffff  __TI_pprof_out_hndl                    
 ffffffff  __TI_prof_data_size                    
 ffffffff  __TI_prof_data_start                   
 ffffffff  __c_args__                             
 
-[1459 symbols]
+[1455 symbols]

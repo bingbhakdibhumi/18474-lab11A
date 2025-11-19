@@ -132,21 +132,41 @@ main() {
   __enable_interrupt(); // Activate interrupts
 
   // motorSetDirection(FORWARD);
-  // startLeftMotor(50);
-  // startRightMotor(50);
+  startLeftMotor(50);
+  startRightMotor(50);
 
   while (1) {
     // myLCD_displayNumber(frontDistance);
     if (frontDistance > 0 && frontDistance < 20) {
       stopLeftMotor();
       stopRightMotor();
-      __delay_cycles(10000);
-    } else if (frontDistance >= 40) {
-      if (!leftMotor.isSpinning) {
-        startLeftMotor(50);
-        startRightMotor(50);
-      }
-    }
+    } 
+    // else if (frontDistance >= 40) {
+    //     startLeftMotor(50);
+    //     startRightMotor(50);
+    // }
+    
+    // startLeftMotor(30);
+    // startRightMotor(30);
+    // __delay_cycles(500000);
+
+    // setLeftMotorSpeed(100);
+    // setRightMotorSpeed(100);
+    // __delay_cycles(500000);
+
+    // setLeftMotorSpeed(50);
+    // setRightMotorSpeed(50);
+    // __delay_cycles(500000);
+
+    // motorSetDirection(LEFT);
+    // __delay_cycles(500000);
+
+    // motorSetDirection(RIGHT);
+    // __delay_cycles(500000);
+
+    // stopLeftMotor();
+    // stopRightMotor();
+    // __delay_cycles(500000);
   }
 }
 

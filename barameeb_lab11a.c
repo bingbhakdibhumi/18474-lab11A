@@ -165,7 +165,7 @@ main() {
       stopLeftMotor();
       stopRightMotor();
       __delay_cycles(10000);
-    } else if (frontDistance >= 10) {
+    } else if (frontDistance >= 40) {
       if (!leftMotor.isSpinning) {
         startLeftMotor(50);
         startRightMotor(50);

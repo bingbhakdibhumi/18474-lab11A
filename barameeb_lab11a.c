@@ -96,7 +96,7 @@
 
 /* ========================= Global Vars ========================= */
 
-volatile int frontDistance = -1;
+volatile int frontDistance = 0;
 volatile int leftDistance = -1;
 volatile int rightDistance = -1;
 
@@ -127,15 +127,23 @@ void stopRightMotor(void);
 
 // count 10us for pulse triggering (tim0)
 static inline void triggerPulse() {
-  P3OUT |= FRONT_TRIG_PIN; // start pulse
+  P9OUT |= FRONT_TRIG_PIN; // start pulse
   __delay_cycles(10);
-  P3OUT &= ~FRONT_TRIG_PIN; // end pulse
+  P9OUT &= ~FRONT_TRIG_PIN; // end pulse
+}
+
+static inline void set65msTick() {
+  TA1CCR0 = TA1R + 65000; // 65ms interval
+  TA1CCTL0 = CCIE;        // enable CCR0 interrupt
 }
 
 main() {
   WDTCTL = WDTPW | WDTHOLD; // Stop WDT
   PM5CTL0 = ENABLE_PINS;    // Enable inputs and outputs
 
+  // // Setting up LCD for debugging
+  // initGPIO();
+  // initClocks(); // Initialize clocks for LCD
   // myLCD_init(); // Prepares LCD to receive commands
 
   // FIXME: why adding lcd init blocks the motor from spinning?
@@ -147,53 +155,35 @@ main() {
 
   __enable_interrupt(); // Activate interrupts
 
-  motorSetDirection(FORWARD);
-  startLeftMotor(50);
-  startRightMotor(50);
+  // motorSetDirection(FORWARD);
+  // startLeftMotor(50);
+  // startRightMotor(50);
 
   while (1) {
-    // if (frontDistance > 0 && frontDistance < 10) {
-    //   stopLeftMotor();
-    //   stopRightMotor();
-    // } else if (frontDistance >= 10) {
-    //   if (!leftMotor.isSpinning) {
-        // startLeftMotor(50);
-        // startRightMotor(50);
-    //   }
-    // }
-    // __delay_cycles(10000);
-
-    startLeftMotor(10);
-    startRightMotor(10);
-    __delay_cycles(500000);
-
-    startLeftMotor(100);
-    startRightMotor(100);
-    __delay_cycles(500000);
-
-    motorSetDirection(LEFT);
-    __delay_cycles(500000);
-
-    motorSetDirection(RIGHT);
-    __delay_cycles(500000);
-
-    stopLeftMotor();
-    stopRightMotor();
-    __delay_cycles(500000);
+    // myLCD_displayNumber(frontDistance);
+    if (frontDistance > 0 && frontDistance < 20) {
+      stopLeftMotor();
+      stopRightMotor();
+      __delay_cycles(10000);
+    } else if (frontDistance >= 10) {
+      if (!leftMotor.isSpinning) {
+        startLeftMotor(50);
+        startRightMotor(50);
+      }
+    }
   }
 }
 
 // TODO: change pwm duty cycle based on the distance detected
 void ultrasonicInit(void) {
   // front
-  P3DIR |= FRONT_TRIG_PIN; // trigger pin as output
-  P3OUT &= ~FRONT_TRIG_PIN;
+  P9DIR |= FRONT_TRIG_PIN; // trigger pin as output
+  P9OUT &= ~FRONT_TRIG_PIN;
 
-  P3DIR &= ~FRONT_ECHO_PIN; // echo pin as output to ADC
-  P3REN &= ~FRONT_ECHO_PIN;
-  P3IES &= ~FRONT_ECHO_PIN;
-  P3IE |= FRONT_ECHO_PIN;
-  P3IFG &= ~FRONT_ECHO_PIN;
+  P4DIR &= ~FRONT_ECHO_PIN; // echo pin as output to ADC
+  P4IES &= 0x00; // detect LO --> HI transition
+  P4IE |= FRONT_ECHO_PIN;   // enable interrupt
+  P4IFG = 0x00;
 
   // // left
   // P3DIR |= LEFT_TRIG_PIN; // trigger pin as output
@@ -215,13 +205,13 @@ void ultrasonicInit(void) {
   // P2IE |= RIGHT_ECHO_PIN;
   // P2IFG &= ~RIGHT_ECHO_PIN;
 
-  // timer init
-  TA2CTL = TASSEL__SMCLK | MC__CONTINUOUS | TACLR;
+  // Timer A2 to measure echo width
+  TA2CTL = TASSEL__SMCLK | MC__STOP | TACLR; // Use SMCLK, for UP mode, Halt timer
 
   // Timer A1 for triggering ultrasonic sensor every 65ms
-  TA1CCR0 = 2130; // ~65ms at 32.768kHz (65ms * 32768Hz / 1000)
-  TA1CTL = TASSEL__ACLK | MC__UP | TACLR;
-  TA1CCTL0 = CCIE; // Enable interrupt
+  TA1CTL = TASSEL__SMCLK | MC__CONTINUOUS | TACLR; // SMCLK, CONTINUOUS
+  
+  set65msTick();
 }
 
 void motorInit(void) {
@@ -337,27 +327,29 @@ void stopRightMotor(void) {
 // Timer1 Interrupt Service Routine
 //************************************************************************
 #pragma vector = TIMER1_A0_VECTOR
-__interrupt void Timer1_ISR(void) { triggerPulse(); }
+__interrupt void Timer1_ISR(void) { 
+  triggerPulse();
+  set65msTick(); // start another cycle
+}
 
+// FOR FRONT ULTRASONIC SENSOR
 //***********************************************************************
 //* Port 4 Interrupt Service Routine
 //***********************************************************************
 #pragma vector = PORT4_VECTOR
 __interrupt void Port_4(void) {
   if (!waitingFall) {
-    TA0CTL =
-        TASSEL__SMCLK | MC__CONTINUOUS | TACLR; // start timer at rising edge
-    P4IES ^= BIT3;                              // change P4 to detect HI --> LO
+    TA2CTL = TASSEL__SMCLK | MC__CONTINUOUS | TACLR; // start timer at rising edge
+    P4IES ^= FRONT_ECHO_PIN;                              // change P4 to detect HI --> LO
     waitingFall = 1;
   } else {
-    timerCount = TA0R;
-    TA0CTL = TASSEL__SMCLK | MC__STOP;
-    TA0CTL |= TACLR; // clear TimerA0 timerCount
+    timerCount = TA2R;
+    TA2CTL = TASSEL__SMCLK | MC__STOP | TACLR; // stop timer and clear TimerA0 timerCount
     P4IES = 0x00;    // detect LO --> HI
     waitingFall = 0;
     frontDistance = timerCount / 58;
   }
-  P4IFG &= ~BIT3; // clear flag
+  P4IFG &= ~FRONT_ECHO_PIN; // clear flag
 }
 
 //***********************************************************************************************

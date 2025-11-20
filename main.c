@@ -9,8 +9,7 @@
 #define ENABLE_PINS 0xFFFE // Needed to enable I/O
 #define SELA_MASK 0x0300   // taken from Piazza
 
-#define PWM_PERIOD 5000      // 200Hz (1MHz / 5000)
-#define RAMP_INTERVAL 0x8000 // 1Hz ramping
+#define PWM_PERIOD 5000 // 200Hz (1MHz / 5000)
 
 // right motor
 #define PWMA BIT7 // PWMA at P1.7
@@ -78,9 +77,9 @@
 
 /* ========================= Global Vars ========================= */
 
-volatile int frontDistance = -1;
-volatile int leftDistance = -1;
-volatile int rightDistance = -1;
+volatile unsigned int frontDistance = 0;
+volatile unsigned int leftDistance = 0;
+volatile unsigned int rightDistance = 0;
 
 volatile unsigned int timerCount = 0;
 volatile int waitingFall = 0;
@@ -103,100 +102,63 @@ void stopRightMotor(void);
 
 // count 10us for pulse triggering (tim0)
 static inline void triggerPulse() {
-  P3OUT |= FRONT_TRIG_PIN; // start pulse
+  P9OUT |= BIT2; // start pulse
   __delay_cycles(10);
-  P3OUT &= ~FRONT_TRIG_PIN; // end pulse
+  P9OUT &= ~BIT2; // end pulse
 }
 
 main() {
   WDTCTL = WDTPW | WDTHOLD; // Stop WDT
   PM5CTL0 = ENABLE_PINS;    // Enable inputs and outputs
 
+  SMCLK_SetTo1MHz();
+
+  // FIXME: gpio conflict? can't run together with motors
   // myLCD_init(); // Prepares LCD to receive commands
 
-  // FIXME: why adding lcd init blocks the motor from spinning?
-  SMCLK_SetTo1MHz();
-  SwitchToLFXT();
-
   motorInit();
-  // ultrasonicInit();
+  ultrasonicInit();
 
   __enable_interrupt(); // Activate interrupts
 
+  startLeftMotor(50);
+  startRightMotor(50);
+
   while (1) {
-    // if (frontDistance > 0 && frontDistance < 10) {
-    //   stopLeftMotor();
-    //   stopRightMotor();
-    // } else if (frontDistance >= 10) {
-    //   if (!leftMotor.isSpinning) {
-    // startLeftMotor(50);
-    // startRightMotor(50);
-    //   }
-    // }
-    // __delay_cycles(10000);
+    if (frontDistance >= 30) {
+      setLeftMotorSpeed(100);
+      setRightMotorSpeed(100);
+    } else if (frontDistance >= 20) {
+      setLeftMotorSpeed(50);
+      setRightMotorSpeed(50);
+    } else if (frontDistance >= 10) {
+      setLeftMotorSpeed(30);
+      setRightMotorSpeed(30);
+    } else {
+      setLeftMotorSpeed(0);
+      setRightMotorSpeed(0);
+    }
 
-    startLeftMotor(30);
-    startRightMotor(30);
-    __delay_cycles(500000);
-
-    setLeftMotorSpeed(100);
-    setRightMotorSpeed(100);
-    __delay_cycles(500000);
-
-    setLeftMotorSpeed(50);
-    setRightMotorSpeed(50);
-    __delay_cycles(500000);
-
-    motorSetDirection(LEFT);
-    __delay_cycles(500000);
-
-    motorSetDirection(RIGHT);
-    __delay_cycles(500000);
-
-    stopLeftMotor();
-    stopRightMotor();
-    __delay_cycles(500000);
+    __delay_cycles(100000); // Small delay to avoid overwhelming the system
   }
 }
 
 // TODO: change pwm duty cycle based on the distance detected
 void ultrasonicInit(void) {
   // front
-  P3DIR |= FRONT_TRIG_PIN; // trigger pin as output
-  P3OUT &= ~FRONT_TRIG_PIN;
+  // P9.2 as output to trigger pulse (start sensing)
+  P9DIR |= FRONT_TRIG_PIN;
+  P9OUT &= ~FRONT_TRIG_PIN;
 
-  P3DIR &= ~FRONT_ECHO_PIN; // echo pin as output to ADC
-  P3REN &= ~FRONT_ECHO_PIN;
-  P3IES &= ~FRONT_ECHO_PIN;
-  P3IE |= FRONT_ECHO_PIN;
-  P3IFG &= ~FRONT_ECHO_PIN;
+  // P4.3 as input from the echo pulse (returned distance)
+  P4DIR &= ~FRONT_ECHO_PIN;
+  P4IFG &= ~FRONT_ECHO_PIN; // clear flag
+  P4IES &= ~FRONT_ECHO_PIN; // rising edge
+  P4IE |= FRONT_ECHO_PIN;   // enable interrupt for pin 4.3
 
-  // // left
-  // P3DIR |= LEFT_TRIG_PIN; // trigger pin as output
-  // P3OUT &= ~LEFT_TRIG_PIN;
-
-  // P3DIR &= ~LEFT_ECHO_PIN; // echo pin as output to ADC
-  // P3REN &= ~LEFT_ECHO_PIN;
-  // P3IES &= ~LEFT_ECHO_PIN;
-  // P3IE |= LEFT_ECHO_PIN;
-  // P3IFG &= ~LEFT_ECHO_PIN;
-
-  // // right
-  // P2DIR |= RIGHT_TRIG_PIN; // trigger pin as output
-  // P2OUT &= ~RIGHT_TRIG_PIN;
-
-  // P2DIR &= ~RIGHT_ECHO_PIN; // echo pin as output to ADC
-  // P2REN &= ~RIGHT_ECHO_PIN;
-  // P2IES &= ~RIGHT_ECHO_PIN;
-  // P2IE |= RIGHT_ECHO_PIN;
-  // P2IFG &= ~RIGHT_ECHO_PIN;
-
-  // timer init
-  TA2CTL = TASSEL__SMCLK | MC__CONTINUOUS | TACLR;
-
-  // Timer A1 for triggering ultrasonic sensor every 65ms
-  TA1CCR0 = 2130; // ~65ms at 32.768kHz (65ms * 32768Hz / 1000)
-  TA1CTL = TASSEL__ACLK | MC__UP | TACLR;
+  // Timer1 A1 for triggering ultrasonic sensor every 65ms
+  TA1CCR0 = 65000;
+  TA1CTL = TASSEL__SMCLK | MC__UP | TACLR;
   TA1CCTL0 = CCIE; // Enable interrupt
 }
 
@@ -299,27 +261,29 @@ void stopRightMotor(void) {
 // Timer1 Interrupt Service Routine
 //************************************************************************
 #pragma vector = TIMER1_A0_VECTOR
-__interrupt void Timer1_ISR(void) { triggerPulse(); }
+__interrupt void Timer1_A0_ISR(void) { triggerPulse(); }
 
 //***********************************************************************
 //* Port 4 Interrupt Service Routine
 //***********************************************************************
 #pragma vector = PORT4_VECTOR
-__interrupt void Port_4(void) {
-  if (!waitingFall) {
-    TA0CTL =
-        TASSEL__SMCLK | MC__CONTINUOUS | TACLR; // start timer at rising edge
-    P4IES ^= BIT3;                              // change P4 to detect HI --> LO
+__interrupt void Port4_ISR(void) {
+  if (!waitingFall) { // Rising edge, start timing
+    TA0CTL = TASSEL__SMCLK | MC__CONTINUOUS | TACLR;
+    P4IES |= FRONT_ECHO_PIN; // detect falling edge
     waitingFall = 1;
-  } else {
+  } else { // Falling edge, stop timing
     timerCount = TA0R;
-    TA0CTL = TASSEL__SMCLK | MC__STOP;
-    TA0CTL |= TACLR; // clear TimerA0 timerCount
-    P4IES = 0x00;    // detect LO --> HI
+
+    TA0CTL = TASSEL__SMCLK | MC__UP | TACLR;
+    TA0CCR0 = PWM_PERIOD;
+
+    P4IES &= ~FRONT_ECHO_PIN; // detect rising edge
     waitingFall = 0;
+
     frontDistance = timerCount / 58;
   }
-  P4IFG &= ~BIT3; // clear flag
+  P4IFG &= ~FRONT_ECHO_PIN;
 }
 
 //***********************************************************************************************
@@ -334,7 +298,7 @@ void SMCLK_SetTo1MHz(void) {
                       // can be mapped to the SMCLK for Timer A.
                       // This command ensures DCO is at 1MHz
   CSCTL2 =
-      (CSCTL2 & ~SELS_3) | SELS__DCOCLK; // Route SMCLK = DCO (don't touch ACLK)
+      (CSCTL2 & ~SELS_3) | SELS__DCOCLK; // Route SMCLK = DCO (don’t touch ACLK)
   CSCTL3 = (CSCTL3 & ~DIVS_7) | DIVS__1; // DCO is 1MHz, so SMCLK will be 1MHz
   SFRIFG1 &= ~OFIFG;                     // Clear oscillator fault flags
   CSCTL0_H = 0;                          // lock CS registers

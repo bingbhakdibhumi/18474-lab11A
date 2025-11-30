@@ -12,12 +12,12 @@
 #define PWM_PERIOD 5000 // 200Hz (1MHz / 5000)
 
 // right motor
-#define PWMA BIT7 // PWMA at P1.7
+#define PWMA BIT5 // PWMA at P1.5
 #define AIN2 BIT5 // AIN2 at P2.5
 #define AIN1 BIT7 // AIN1 at P4.7
 
 // left motor
-#define PWMB BIT6 // PWMB at P1.6
+#define PWMB BIT3 // PWMB at P1.3
 #define BIN2 BIT1 // BIN2 at P4.1
 #define BIN1 BIT6 // BIN1 at P9.6
 
@@ -37,11 +37,13 @@
 #define RED_LED_PIN BIT0   // P1.0
 #define GREEN_LED_PIN BIT7 // P9.7
 
-// PID variables
-#define TARGET_WALL_DISTANCE 15 // Target distance from right wall (cm)
-#define BASE_SPEED 40           // Base motor speed
-#define MIN_SPEED 20            // Minimum motor speed
-#define MAX_SPEED 100           // Maximum motor speed
+// PID variables - NOW IN TIMER COUNTS, NOT CM
+#define TARGET_WALL_DISTANCE 1160
+#define BASE_SPEED 40
+#define MIN_SPEED 30
+#define MAX_SPEED 50
+#define LEFT_MOTOR_OFFSET 0
+#define RIGHT_MOTOR_OFFSET 0
 
 #define LEFT_MOTOR_FORWARD                                                     \
   do {                                                                         \
@@ -83,13 +85,31 @@
     P1OUT &= ~PWMA;                                                            \
   } while (0)
 
+#define GREEN_LED_ON                                                           \
+  do {                                                                         \
+    P1OUT &= ~RED_LED_PIN;                                                     \
+    P9OUT |= GREEN_LED_PIN;                                                    \
+  } while (0)
+
+#define RED_LED_ON                                                             \
+  do {                                                                         \
+    P1OUT |= RED_LED_PIN;                                                      \
+    P9OUT &= ~GREEN_LED_PIN;                                                   \
+  } while (0)
+
+#define LEDS_OFF                                                               \
+  do {                                                                         \
+    P1OUT &= ~RED_LED_PIN;                                                     \
+    P9OUT &= ~GREEN_LED_PIN;                                                   \
+  } while (0)
+
 #define RIGHT_MOTOR_START P1OUT |= PWMA;
 
 /* ========================= Global Vars ========================= */
 
-volatile unsigned int frontDistance = 0;
-volatile unsigned int leftDistance = 0;
-volatile unsigned int rightDistance = 0;
+volatile unsigned long frontDistance = 0;
+volatile unsigned long leftDistance = 0;
+volatile unsigned long rightDistance = 0;
 
 volatile int frontWaitingFall = 0;
 volatile int rightWaitingFall = 0;
@@ -101,11 +121,31 @@ typedef enum { STOP = 0, FORWARD = 1, LEFT, RIGHT } Direction;
 
 float integralError = 0;
 float lastError = 0;
+
+// Add these global variables
+volatile unsigned long frontDistanceBuffer[3] = {0};
+volatile unsigned long rightDistanceBuffer[3] = {0};
+volatile unsigned char bufferIndex = 0;
+
+// Add this helper function
+unsigned long getFilteredDistance(volatile unsigned long *buffer) {
+  unsigned long sum = 0;
+  int i;
+  for (i = 0; i < 3; i++) {
+    sum += buffer[i];
+  }
+  return sum / 3;
+}
+
+float error = 0;
+float derivative = 0;
+
 /* ========================= Helper Functions ========================= */
 
 void SwitchToLFXT(void);
 void SMCLK_SetTo1MHz(void);
-static void buttonInit(void);
+void buttonInit(void);
+void timerInit(void);
 void ultrasonicInit(void);
 void motorInit(void);
 void motorSetDirection(Direction direction);
@@ -117,6 +157,24 @@ void stopLeftMotor(void);
 void stopRightMotor(void);
 void pidWallFollow(void);
 void stopBothMotors(void);
+
+//***********************************************************************************************
+// Switches SMCLK to DCO at 1MHz
+//***********************************************************************************************
+void SMCLK_SetTo1MHz(void) {
+#define DIVS_7 0x0070
+  CSCTL0_H = CSKEY_H; // unlock CS registers
+  CSCTL1 = (CSCTL1 & ~(DCORSEL | DCOFSEL_7)) |
+           DCOFSEL_0; // The digitally controlled oscillator (DCO)
+                      // is an internal high frequency signal that
+                      // can be mapped to the SMCLK for Timer A.
+                      // This command ensures DCO is at 1MHz
+  CSCTL2 =
+      (CSCTL2 & ~SELS_3) | SELS__DCOCLK; // Route SMCLK = DCO (don’t touch ACLK)
+  CSCTL3 = (CSCTL3 & ~DIVS_7) | DIVS__1; // DCO is 1MHz, so SMCLK will be 1MHz
+  SFRIFG1 &= ~OFIFG;                     // Clear oscillator fault flags
+  CSCTL0_H = 0;                          // lock CS registers
+}
 
 // count 10us for pulse triggering (tim0)
 static inline void triggerFrontPulse() {
@@ -137,74 +195,138 @@ static inline void triggerLeftPulse() {
   P3OUT &= ~LEFT_TRIG_PIN;
 }
 
+/**
+ * ses the ultrasonic range finder to measure the distance
+ * from the sensor to a wall. Display the distance in centimeters on the LCD
+ */
 main() {
-  WDTCTL = WDTPW | WDTHOLD; // Stop WDT
-  PM5CTL0 = ENABLE_PINS;    // Enable inputs and outputs
-
-  SMCLK_SetTo1MHz();
-
-  // myLCD_init(); // Prepares LCD to receive commands
+  WDTCTL = WDTPW | WDTHOLD;
+  PM5CTL0 = ENABLE_PINS;
 
   buttonInit();
   motorInit();
   ultrasonicInit();
+  SMCLK_SetTo1MHz();
+  timerInit();
 
-  __enable_interrupt(); // Activate interrupts
+  // myLCD_init();
 
-  startLeftMotor(50);
-  startRightMotor(50);
+  __enable_interrupt();
 
-  // TODO: add a button to start and stop
+  startLeftMotor(BASE_SPEED);
+  startRightMotor(BASE_SPEED);
+
   while (1) {
-    if (isStart) {
-      if (frontDistance <= 10) {
-        stopBothMotors();
-        __delay_cycles(1000000);
-        continue;
-      }
-
-      if (frontDistance > 40) {
-        setLeftMotorSpeed(50);
-        setRightMotorSpeed(50);
-      } else if (frontDistance > 20) {
-        setLeftMotorSpeed(20);
-        setRightMotorSpeed(20);
-      }
-
-      if (rightDistance > 40) {
-        motorSetDirection(FORWARD);
-      } else if (rightDistance > 30) {
-        motorSetDirection(RIGHT);
-      } else if (rightDistance > 20) {
-        motorSetDirection(LEFT);
-      } else {
-        motorSetDirection(STOP);
-      }
-
-      __delay_cycles(50000);
-    } else {
-      stopBothMotors();
+    // Front sensor: reject invalid readings
+    // Max valid distance ~400cm = 23200 counts
+    if (frontDistance == 0 || frontDistance > 23200) {
+      continue;
     }
+
+    // Stop if front obstacle within 15cm = 870 counts
+    if (frontDistance <= 1450) { // 15cm * 58 = 870
+      stopBothMotors();
+      __delay_cycles(500000);
+      error = 0;
+      derivative = 0;
+      continue;
+    }
+
+    // Check if we have a valid wall reading
+    if (rightDistance > 0 && rightDistance < 5800) {
+      // Normal wall following with PID
+      if (rightDistance < 1160) {
+        GREEN_LED_ON; // Too close
+      } else if ((rightDistance > 1160) && (rightDistance < 1800)) {
+        RED_LED_ON; // Too far
+      } else if (rightDistance > 1800) {
+        LEDS_OFF; // way too far
+      }
+      pidWallFollow();
+    }
+    // else {
+    // // Lost wall (open door) - gently turn left to find wall
+    // error = 0;
+    // derivative = 0;
+    // P9OUT |= GREEN_LED_PIN;
+    // P1OUT |= RED_LED_PIN;
+    // setLeftMotorSpeed(BASE_SPEED - 3);  // Left slightly faster
+    // setRightMotorSpeed(BASE_SPEED + 2); // Right slightly slower
+    //   __delay_cycles(100000);
+    // }
+
+    __delay_cycles(10000);
   }
+}
 
-  // while (1) {
-  //   // myLCD_displayNumber(rightDistance);
+//************************************************************************
+// Timer1 Interrupt Service Routine
+//************************************************************************
+volatile int sensorCycle = 0;
 
-  //   if (frontDistance <= 10) {
-  //     stopBothMotors();
-  //     __delay_cycles(1000000);
-  //     continue;
-  //   }
+#pragma vector = TIMER1_A0_VECTOR
+__interrupt void Timer1_A0_ISR(void) {
+  sensorCycle++;
 
-  //   if (frontDistance > 20) {
-  //     pidWallFollow();
-  //   } else {
-  //     setLeftMotorSpeed(20);
-  //     setRightMotorSpeed(20);
-  //   }
+  if (sensorCycle % 3 == 0) { // Every 3rd cycle, check front
+    triggerFrontPulse();
+  } else { // 2 out of 3 cycles, check right
+    triggerRightPulse();
+  }
+}
 
-  //   __delay_cycles(50000);
-  // }
+// Add this timeout value (in microseconds at 1MHz clock)
+#define ECHO_TIMEOUT 30000 // 30ms timeout (max ~500cm range)
+
+// Modify Port4_ISR (Front Sensor):
+#pragma vector = PORT4_VECTOR
+__interrupt void Port4_ISR(void) {
+  if (P4IFG & FRONT_ECHO_PIN) {
+    if (!frontWaitingFall) { // Rising edge, start timing
+      TA2CTL = TASSEL__SMCLK | MC__CONTINUOUS | TACLR;
+      P4IES |= FRONT_ECHO_PIN; // detect falling edge
+      frontWaitingFall = 1;
+    } else { // Falling edge, stop timing
+      unsigned long count = TA2R;
+      TA2CTL = TASSEL__SMCLK | MC__STOP | TACLR;
+      P4IES &= ~FRONT_ECHO_PIN; // detect rising edge
+      frontWaitingFall = 0;
+
+      // Validate the count before calculating distance
+      if (count < ECHO_TIMEOUT) {
+        frontDistanceBuffer[bufferIndex] = count;
+        frontDistance = getFilteredDistance(frontDistanceBuffer);
+      }
+      // else: ignore this reading, keep previous value
+    }
+    P4IFG &= ~FRONT_ECHO_PIN;
+  }
+}
+
+// Modify Port2_ISR (Right Sensor):
+#pragma vector = PORT2_VECTOR
+__interrupt void Port2_ISR(void) {
+  if (P2IFG & RIGHT_ECHO_PIN) {
+    if (!rightWaitingFall) { // Rising edge, start timing
+      TA3CTL = TASSEL__SMCLK | MC__CONTINUOUS | TACLR;
+      P2IES |= RIGHT_ECHO_PIN; // detect falling edge
+      rightWaitingFall = 1;
+    } else { // Falling edge, stop timing
+      unsigned long count = TA3R;
+      TA3CTL = TASSEL__SMCLK | MC__STOP | TACLR;
+      P2IES &= ~RIGHT_ECHO_PIN; // detect rising edge
+      rightWaitingFall = 0;
+
+      // Validate the count before calculating distance
+      if (count < ECHO_TIMEOUT) {
+        rightDistanceBuffer[bufferIndex] = count;
+        rightDistance = getFilteredDistance(rightDistanceBuffer);
+        bufferIndex = (bufferIndex + 1) % 3;
+      }
+      // else: ignore this reading, keep previous value
+    }
+    P2IFG &= ~RIGHT_ECHO_PIN;
+  }
 }
 
 //***********************************************************************************************
@@ -244,9 +366,11 @@ void ultrasonicInit(void) {
   P2IFG &= ~RIGHT_ECHO_PIN;
   P2IES &= ~RIGHT_ECHO_PIN;
   P2IE |= RIGHT_ECHO_PIN;
+}
 
+void timerInit(void) {
   // Timer1 A1 for triggering ultrasonic sensor every 65ms
-  TA1CCR0 = 100000;
+  TA1CCR0 = 50000;
   TA1CTL = TASSEL__SMCLK | MC__UP | TACLR;
   TA1CCTL0 = CCIE; // Enable interrupt
 
@@ -323,7 +447,7 @@ void startLeftMotor(int speed) {
   LEFT_MOTOR_FORWARD;
   LEFT_MOTOR_START;
 
-  TA0CCR1 = (TA0CCR0 / 100 * speed); // Set PWM duty cycle
+  TA0CCR1 = (TA0CCR0 / 100 * (speed + LEFT_MOTOR_OFFSET));
 }
 
 // speed at percentage (0-100%)
@@ -331,7 +455,7 @@ void setLeftMotorSpeed(int speed) {
   speed = (speed > MAX_SPEED) ? MAX_SPEED : speed;
   speed = (speed < MIN_SPEED) ? MIN_SPEED : speed;
 
-  TA0CCR1 = (TA0CCR0 / 100 * speed);
+  TA0CCR1 = (TA0CCR0 / 100 * (speed + LEFT_MOTOR_OFFSET));
 }
 
 void stopLeftMotor(void) {
@@ -347,138 +471,19 @@ void startRightMotor(int speed) {
   RIGHT_MOTOR_FORWARD;
   RIGHT_MOTOR_START
 
-  TA0CCR2 = (TA0CCR0 / 100 * speed); // Set PWM duty cycle
+  TA0CCR2 = (TA0CCR0 / 100 * (speed + RIGHT_MOTOR_OFFSET));
 }
 
 void setRightMotorSpeed(int speed) {
   speed = (speed > MAX_SPEED) ? MAX_SPEED : speed;
   speed = (speed < MIN_SPEED) ? MIN_SPEED : speed;
 
-  TA0CCR2 = (TA0CCR0 / 100 * speed);
+  TA0CCR2 = (TA0CCR0 / 100 * (speed + RIGHT_MOTOR_OFFSET));
 }
 
 void stopRightMotor(void) {
   RIGHT_MOTOR_STOP;
   TA0CCR2 = 0;
-}
-
-//************************************************************************
-// Timer1 Interrupt Service Routine
-//************************************************************************
-Sensor selectSensor = FRONT_SENSOR;
-#pragma vector = TIMER1_A0_VECTOR
-__interrupt void Timer1_A0_ISR(void) {
-  if (selectSensor == FRONT_SENSOR) {
-    triggerFrontPulse();
-    selectSensor = RIGHT_SENSOR;
-  } else if (selectSensor == RIGHT_SENSOR) {
-    triggerRightPulse();
-    selectSensor = FRONT_SENSOR;
-  }
-}
-
-// TODO: eventually change to enter clockwise or counterclockwise mode
-//***********************************************************************
-//* Port 1 Interrupt Service Routine (start or stop), ref: lab08c
-//***********************************************************************
-#pragma vector = PORT1_VECTOR
-__interrupt void Port1_ISR(void) {
-  __delay_cycles(10000); // quick debouncing
-  if (P1IFG & BIT1) {    // P1.1 pressed
-    isStart = !isStart;
-    P1OUT ^= BIT0; // toggle the LEDs
-    P9OUT ^= BIT7;
-    P1IFG &= ~BIT1;
-  }
-}
-
-//***********************************************************************
-//* Port 4 Interrupt Service Routine (front ultrasonic)
-//***********************************************************************
-#pragma vector = PORT4_VECTOR
-__interrupt void Port4_ISR(void) {
-  if (P4IFG & FRONT_ECHO_PIN) {
-    if (!frontWaitingFall) { // Rising edge, start timing
-      TA2CTL = TASSEL__SMCLK | MC__CONTINUOUS | TACLR;
-      P4IES |= FRONT_ECHO_PIN; // detect falling edge
-      frontWaitingFall = 1;
-    } else { // Falling edge, stop timing
-      unsigned long count = TA2R;
-      TA2CTL = MC__STOP | TACLR;
-      P4IES &= ~FRONT_ECHO_PIN; // detect rising edge
-      frontWaitingFall = 0;
-      frontDistance = count / 58;
-    }
-    P4IFG &= ~FRONT_ECHO_PIN;
-  }
-}
-
-//***********************************************************************
-//* Port 2 Interrupt Service Routine (right ultrasonic)
-//***********************************************************************
-#pragma vector = PORT2_VECTOR
-__interrupt void Port2_ISR(void) {
-  if (P2IFG & RIGHT_ECHO_PIN) {
-    if (!rightWaitingFall) { // Rising edge, start timing
-      TA3CTL = TASSEL__SMCLK | MC__CONTINUOUS | TACLR;
-      P2IES |= RIGHT_ECHO_PIN; // detect falling edge
-      rightWaitingFall = 1;
-    } else { // Falling edge, stop timing
-      unsigned long count = TA3R;
-      TA3CTL = MC__STOP | TACLR;
-      P2IES &= ~RIGHT_ECHO_PIN; // detect rising edge
-      rightWaitingFall = 0;
-      rightDistance = count / 58;
-    }
-    P2IFG &= ~RIGHT_ECHO_PIN;
-  }
-}
-
-//***********************************************************************
-//* Port 3 Interrupt Service Routine (left ultrasonic)
-//***********************************************************************
-#pragma vector = PORT3_VECTOR
-__interrupt void Port3_ISR(void) {}
-
-//***********************************************************************************************
-// Switches SMCLK to DCO at 1MHz
-//***********************************************************************************************
-void SMCLK_SetTo1MHz(void) {
-#define DIVS_7 0x0070
-  CSCTL0_H = CSKEY_H; // unlock CS registers
-  CSCTL1 = (CSCTL1 & ~(DCORSEL | DCOFSEL_7)) |
-           DCOFSEL_0; // The digitally controlled oscillator (DCO)
-                      // is an internal high frequency signal that
-                      // can be mapped to the SMCLK for Timer A.
-                      // This command ensures DCO is at 1MHz
-  CSCTL2 =
-      (CSCTL2 & ~SELS_3) | SELS__DCOCLK; // Route SMCLK = DCO (don’t touch ACLK)
-  CSCTL3 = (CSCTL3 & ~DIVS_7) | DIVS__1; // DCO is 1MHz, so SMCLK will be 1MHz
-  SFRIFG1 &= ~OFIFG;                     // Clear oscillator fault flags
-  CSCTL0_H = 0;                          // lock CS registers
-}
-
-//********************************************************************************************
-// Switches ACLK to Low Frequency eXTernal crystal (LFXT) at 32.768kHz
-//***********************************************************************************************
-void SwitchToLFXT(void) {
-  CSCTL0_H = CSKEY_H; // Unlock Clock Select (CS) registers
-
-  PJSEL0 |= BIT4 | BIT5;    // Configure PJ.4 and PJ.5 as LFXIN/LFXOUT
-  PJSEL1 &= ~(BIT4 | BIT5); // Now, they cannot be used for inputs/outputs
-
-  CSCTL4 &= ~LFXTOFF; // Turn on 32.76kHz Low Frequency eXTernal (LFXT) signal
-
-  do // Wait for the 32.768kHz LFXT signal to stabilize
-  {
-    CSCTL5 &= ~LFXTOFFG; // Clear LFXT fault flag
-    SFRIFG1 &= ~OFIFG;   // Clear global Oscillator Fault Interrupt FlaG (OFIFG)
-  } while (SFRIFG1 & OFIFG); // Loop until stable and OFIFG goes LO
-
-  CSCTL1 = (CSCTL1 & ~SELA_MASK) |
-           SELA__LFXTCLK; // Use 32.768kHz LFXT signal as intput to ACLK
-
-  CSCTL0_H = 0; // Lock Clock Select (CS) registers
 }
 
 void stopBothMotors(void) {
@@ -489,5 +494,43 @@ void stopBothMotors(void) {
   integralError = 0; // Reset PID
   lastError = 0;
 }
+volatile float filteredError = 0;
 
-void pidWallFollow(void) {}
+void pidWallFollow() {
+  const float Kp = 0.0179;
+  const float Kd = 0.801;
+
+  error = (float)rightDistance - TARGET_WALL_DISTANCE;
+
+  // simple LPF
+  filteredError = 0.7f * filteredError + 0.3f * error;
+
+  derivative = filteredError - lastError;
+  lastError = filteredError;
+
+  if (error > 640) {
+    if (derivative < 400) {
+      // Lost wall, gently turn left
+      error = 0;
+      derivative = 0;
+      setLeftMotorSpeed(BASE_SPEED - 2);
+      setRightMotorSpeed(BASE_SPEED);
+    }
+    return; // open door case, ignore sudden changes in distance reading
+  }
+
+  float output = Kp * filteredError + Kd * derivative;
+
+  // rate limit
+  if (output > 7)
+    output = 7;
+  if (output < -7)
+    output = -7;
+
+  int left = BASE_SPEED + (int)output;
+
+  int right = BASE_SPEED - (int)output;
+
+  setLeftMotorSpeed(left);
+  setRightMotorSpeed(right);
+}

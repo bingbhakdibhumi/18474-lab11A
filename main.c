@@ -12,12 +12,12 @@
 #define PWM_PERIOD 5000 // 200Hz (1MHz / 5000)
 
 // right motor
-#define PWMA BIT5 // PWMA at P1.5
+#define PWMA BIT7 // PWMA at P1.7 (FIXME: also for i2c)
 #define AIN2 BIT5 // AIN2 at P2.5
 #define AIN1 BIT7 // AIN1 at P4.7
 
 // left motor
-#define PWMB BIT3 // PWMB at P1.3
+#define PWMB BIT6 // PWMB at P1.6 (FIXME: also for i2c)
 #define BIN2 BIT1 // BIN2 at P4.1
 #define BIN1 BIT6 // BIN1 at P9.6
 
@@ -26,8 +26,8 @@
 #define FRONT_ECHO_PIN BIT3 // P4.3
 
 // left ultrasonic sensor
-#define LEFT_TRIG_PIN BIT3 // P3.3
-#define LEFT_ECHO_PIN BIT6 // P3.6
+#define LEFT_TRIG_PIN BIT1 // P9.1
+#define LEFT_ECHO_PIN BIT2 // P4.2
 
 // right ultrasonic sensor
 #define RIGHT_TRIG_PIN BIT1 // P2.1
@@ -113,6 +113,7 @@ volatile unsigned long rightDistance = 0;
 
 volatile int frontWaitingFall = 0;
 volatile int rightWaitingFall = 0;
+volatile int leftWaitingFall = 0;
 
 volatile bool isStart = false;
 
@@ -125,7 +126,11 @@ float lastError = 0;
 // Add these global variables
 volatile unsigned long frontDistanceBuffer[3] = {0};
 volatile unsigned long rightDistanceBuffer[3] = {0};
-volatile unsigned char bufferIndex = 0;
+volatile unsigned long leftDistanceBuffer[3] = {0};
+
+volatile unsigned char frontBufferIndex = 0;
+volatile unsigned char rightBufferIndex = 0;
+volatile unsigned char leftBufferIndex = 0;
 
 // Add this helper function
 unsigned long getFilteredDistance(volatile unsigned long *buffer) {
@@ -190,9 +195,9 @@ static inline void triggerRightPulse() {
 }
 
 static inline void triggerLeftPulse() {
-  P3OUT |= LEFT_TRIG_PIN;
+  P9OUT |= LEFT_TRIG_PIN;
   __delay_cycles(10);
-  P3OUT &= ~LEFT_TRIG_PIN;
+  P9OUT &= ~LEFT_TRIG_PIN;
 }
 
 /**
@@ -217,6 +222,7 @@ main() {
   startRightMotor(BASE_SPEED);
 
   while (1) {
+    // myLCD_displayNumber((unsigned long)rightDistance);
     // Front sensor: reject invalid readings
     // Max valid distance ~400cm = 23200 counts
     if (frontDistance == 0 || frontDistance > 23200) {
@@ -224,7 +230,7 @@ main() {
     }
 
     // Stop if front obstacle within 15cm = 870 counts
-    if (frontDistance <= 1450) { // 15cm * 58 = 870
+    if (frontDistance <= 1450) { // 25cm * 58
       stopBothMotors();
       __delay_cycles(500000);
       error = 0;
@@ -244,17 +250,6 @@ main() {
       }
       pidWallFollow();
     }
-    // else {
-    // // Lost wall (open door) - gently turn left to find wall
-    // error = 0;
-    // derivative = 0;
-    // P9OUT |= GREEN_LED_PIN;
-    // P1OUT |= RED_LED_PIN;
-    // setLeftMotorSpeed(BASE_SPEED - 3);  // Left slightly faster
-    // setRightMotorSpeed(BASE_SPEED + 2); // Right slightly slower
-    //   __delay_cycles(100000);
-    // }
-
     __delay_cycles(10000);
   }
 }
@@ -268,9 +263,11 @@ volatile int sensorCycle = 0;
 __interrupt void Timer1_A0_ISR(void) {
   sensorCycle++;
 
-  if (sensorCycle % 3 == 0) { // Every 3rd cycle, check front
+  if (sensorCycle % 3 == 0) {
     triggerFrontPulse();
-  } else { // 2 out of 3 cycles, check right
+  } else if (sensorCycle % 3 == 1) {
+    triggerLeftPulse();
+  } else {
     triggerRightPulse();
   }
 }
@@ -278,7 +275,6 @@ __interrupt void Timer1_A0_ISR(void) {
 // Add this timeout value (in microseconds at 1MHz clock)
 #define ECHO_TIMEOUT 30000 // 30ms timeout (max ~500cm range)
 
-// Modify Port4_ISR (Front Sensor):
 #pragma vector = PORT4_VECTOR
 __interrupt void Port4_ISR(void) {
   if (P4IFG & FRONT_ECHO_PIN) {
@@ -294,16 +290,36 @@ __interrupt void Port4_ISR(void) {
 
       // Validate the count before calculating distance
       if (count < ECHO_TIMEOUT) {
-        frontDistanceBuffer[bufferIndex] = count;
+        frontDistanceBuffer[frontBufferIndex] = count;
         frontDistance = getFilteredDistance(frontDistanceBuffer);
+        frontBufferIndex = (frontBufferIndex + 1) % 3;
       }
       // else: ignore this reading, keep previous value
     }
     P4IFG &= ~FRONT_ECHO_PIN;
+  } else if (P4IFG & LEFT_ECHO_PIN) {
+    if (!leftWaitingFall) { // Rising edge, start timing
+      TB0CTL = TBSSEL__SMCLK | MC__CONTINUOUS | TBCLR;
+      P4IES |= LEFT_ECHO_PIN; // detect falling edge
+      leftWaitingFall = 1;
+    } else { // Falling edge, stop timing
+      unsigned long count = TB0R;
+      TB0CTL = TBSSEL__SMCLK | MC__STOP | TBCLR;
+      P4IES &= ~LEFT_ECHO_PIN; // detect rising edge
+      leftWaitingFall = 0;
+
+      // Validate the count before calculating distance
+      if (count < ECHO_TIMEOUT) {
+        leftDistanceBuffer[leftBufferIndex] = count;
+        leftDistance = getFilteredDistance(leftDistanceBuffer);
+        leftBufferIndex = (leftBufferIndex + 1) % 3;
+      }
+      // else: ignore this reading, keep previous value
+    }
+    P4IFG &= ~LEFT_ECHO_PIN;
   }
 }
 
-// Modify Port2_ISR (Right Sensor):
 #pragma vector = PORT2_VECTOR
 __interrupt void Port2_ISR(void) {
   if (P2IFG & RIGHT_ECHO_PIN) {
@@ -319,9 +335,9 @@ __interrupt void Port2_ISR(void) {
 
       // Validate the count before calculating distance
       if (count < ECHO_TIMEOUT) {
-        rightDistanceBuffer[bufferIndex] = count;
+        rightDistanceBuffer[rightBufferIndex] = count;
         rightDistance = getFilteredDistance(rightDistanceBuffer);
-        bufferIndex = (bufferIndex + 1) % 3;
+        rightBufferIndex = (rightBufferIndex + 1) % 3;
       }
       // else: ignore this reading, keep previous value
     }
@@ -366,19 +382,31 @@ void ultrasonicInit(void) {
   P2IFG &= ~RIGHT_ECHO_PIN;
   P2IES &= ~RIGHT_ECHO_PIN;
   P2IE |= RIGHT_ECHO_PIN;
+
+  // left
+  P9DIR |= LEFT_TRIG_PIN;
+  P9OUT &= ~LEFT_TRIG_PIN;
+
+  P4DIR &= ~LEFT_ECHO_PIN;
+  P4IFG &= ~LEFT_ECHO_PIN;
+  P4IES &= ~LEFT_ECHO_PIN;
+  P4IE |= LEFT_ECHO_PIN;
 }
 
 void timerInit(void) {
-  // Timer1 A1 for triggering ultrasonic sensor every 65ms
+  // TA1 for triggering ultrasonic sensor every 65ms
   TA1CCR0 = 50000;
   TA1CTL = TASSEL__SMCLK | MC__UP | TACLR;
   TA1CCTL0 = CCIE; // Enable interrupt
 
-  // Timer2 for front sensor echo timing
+  // TA2 for front sensor echo timing
   TA2CTL = TASSEL__SMCLK | MC__STOP | TACLR;
 
-  // Timer3 for right sensor echo timing
+  // TA3 for right sensor echo timing
   TA3CTL = TASSEL__SMCLK | MC__STOP | TACLR;
+
+  // TB0 for left sensor echo timing
+  TB0CTL = TBSSEL__SMCLK | MC__STOP | TBCLR;
 }
 
 void motorInit(void) {
